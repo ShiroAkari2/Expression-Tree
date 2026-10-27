@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Expression tree</title>
+<style>
+:root{--bg:#f2efe6;--ink:#1d2433;--panel:#fffdf6;--edge:#cfc8b4;--btn:#dcdcdc;--btn-edge:#b4b4b4;--btn-ink:#1d2433;--ok:#2e7d4f;--bad:#b3392f;--mut:#6b7080;color-scheme:light}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#171b26;--ink:#ece8dc;--panel:#232a3a;--edge:#39425a;--ok:#5fc087;--bad:#ee7b70;--mut:#98a0b5;color-scheme:dark}}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:"Trebuchet MS",Verdana,sans-serif;display:flex;justify-content:center}
+:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+main{width:100%;max-width:560px;min-height:100%;padding:20px 18px;display:flex;flex-direction:column;gap:14px}
+header{display:flex;justify-content:space-between;align-items:center}
+h1{font-size:1.5rem;margin:0}
+.bar{display:flex;justify-content:space-between;align-items:center;gap:10px}
+.stat{color:var(--mut);font-size:.9rem;text-align:right}
+.stage{flex:1;display:flex;flex-direction:column;justify-content:center;gap:20px;padding:8px 0 16px}
+.target{text-align:center;color:var(--mut)}
+.target b{display:block;font-size:4.4rem;line-height:1.05;color:var(--ink)}
+.screen{background:var(--panel);border:2px solid var(--edge);border-radius:14px;min-height:96px;padding:14px 16px;font-size:2rem;letter-spacing:.08em;word-break:break-all;display:flex;align-items:center;justify-content:center;text-align:center}
+.screen.empty{color:var(--mut);font-size:1.05rem;letter-spacing:0}
+#msg{min-height:2.8em;text-align:center;font-weight:bold;line-height:1.4}
+.ok{color:var(--ok)}.bad{color:var(--bad)}
+.nums{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+.ops{display:grid;grid-template-columns:repeat(6,1fr);gap:10px}
+.acts{display:grid;grid-template-columns:1fr 1fr 1fr 1.6fr;gap:10px}
+button{font:inherit;font-weight:bold;border:0;border-radius:14px;background:var(--btn);color:var(--btn-ink);box-shadow:0 3px 0 var(--btn-edge);cursor:pointer;padding:0 4px}
+button:focus-visible{outline:3px solid var(--ink);outline-offset:2px}
+button:active:not(:disabled){transform:translateY(2px);box-shadow:0 1px 0 var(--btn-edge)}
+button:disabled{opacity:.35;cursor:default;box-shadow:none}
+.nums button{min-height:84px;font-size:2.3rem}
+.ops button{min-height:68px;font-size:1.7rem}
+.acts button{min-height:64px;font-size:.95rem}
+.acts .go{border:2px solid var(--ink)}
+#hint{min-height:42px;padding:0 20px;font-size:1rem}
+.mode button{min-height:36px;padding:0 14px;font-size:.9rem;box-shadow:none}
+.mode button[aria-pressed="true"]{border:2px solid var(--ink)}
+.mode{display:flex;gap:8px}
+</style>
+</head>
+<body>
+<main>
+  <header><h1>Expression tree</h1><button id="hint">Hint</button></header>
+  <div class="bar">
+    <div class="mode">
+      <button id="m-classic" aria-pressed="true">Klasik 24</button>
+      <button id="m-random" aria-pressed="false">Acak</button>
+    </div>
+    <span class="stat" id="stat"></span>
+  </div>
+  <div class="stage">
+    <div class="target">Buat angka<b id="target">24</b></div>
+    <div class="screen empty" id="screen"></div>
+    <div id="msg" aria-live="polite"></div>
+    <div class="nums" id="nums"></div>
+    <div class="ops" id="ops"></div>
+    <div class="acts">
+      <button id="skip">Soal lain</button>
+      <button id="undo">Hapus</button>
+      <button id="clear">Ulang</button>
+      <button id="check" class="go">Cek jawaban</button>
+    </div>
+  </div>
+</main>
+<script>
+const OPS = ['+','-','*','/'];
+const SHOW = {'+':'+','-':'\u2212','*':'\u00d7','/':'\u00f7','(':'(',')':')'};
+
+// Semua langkah harus bilangan bulat: pembagian hanya boleh jika habis
+function apply(op,a,b){
+  if(op==='+') return a+b;
+  if(op==='-') return a-b;
+  if(op==='*') return a*b;
+  if(b===0||a%b!==0) return null;
+  return a/b;
+}
+const items = n => n.map(x=>({v:x,s:String(x)}));
+
+// Cari satu solusi; simpan langkah pertama untuk hint
+function solve(list,target,top){
+  if(list.length===1) return list[0].v===target ? {s:list[0].s} : null;
+  for(let i=0;i<list.length;i++) for(let j=0;j<list.length;j++){
+    if(i===j) continue;
+    const a=list[i], b=list[j];
+    const rest=list.filter((_,k)=>k!==i&&k!==j);
+    for(const op of OPS){
+      if((op==='+'||op==='*')&&i>j) continue;
+      const v=apply(op,a.v,b.v);
+      if(v===null) continue;
+      const r=solve([...rest,{v,s:'('+a.s+op+b.s+')'}],target,false);
+      if(r){ if(top) r.step=[a.s,op,b.s]; return r; }
+    }
+  }
+  return null;
+}
+// Kumpulkan semua nilai yang bisa dicapai dari angka-angka ini
+function reach(arr,out){
+  if(arr.length===1){ out.add(arr[0]); return; }
+  for(let i=0;i<arr.length;i++) for(let j=0;j<arr.length;j++){
+    if(i===j) continue;
+    const rest=arr.filter((_,k)=>k!==i&&k!==j);
+    for(const op of OPS){
+      if((op==='+'||op==='*')&&i>j) continue;
+      const v=apply(op,arr[i],arr[j]);
+      if(v!==null) reach([...rest,v],out);
+    }
+  }
+}
+const pretty = s => (s[0]==='('?s.slice(1,-1):s).replace(/[*\/\-]/g,c=>SHOW[c]);
+
+function evaluate(tokens){
+  let p=0;
+  const fail=m=>{throw new Error(m)};
+  function expr(){
+    let v=term();
+    while(tokens[p]==='+'||tokens[p]==='-'){
+      const o=tokens[p++], t=term();
+      v=o==='+'?v+t:v-t;
+    }
+    return v;
+  }
+  function term(){
+    let v=factor();
+    while(tokens[p]==='*'||tokens[p]==='/'){
+      const o=tokens[p++], f=factor();
+      if(o==='*') v*=f;
+      else {
+        if(f===0) fail('Tidak bisa dibagi nol');
+        if(v%f!==0) fail('Pembagian harus habis (tanpa pecahan)');
+        v/=f;
+      }
+    }
+    return v;
+  }
+  function factor(){
+    const t=tokens[p];
+    if(t===undefined) fail('Susunan belum lengkap');
+    if(t==='('){ p++; const v=expr(); if(tokens[p++]!==')') fail('Kurung belum tertutup'); return v; }
+    if(/^\d+$/.test(t)){ p++; return Number(t); }
+    fail('Susunan tidak valid');
+  }
+  const v=expr();
+  if(p<tokens.length) fail('Susunan tidak valid');
+  return v;
+}
+
+let mode='classic', nums=[], target=24, sol=null, seq=[], score=0, streak=0, locked=false, hintLevel=0;
+const $=id=>document.getElementById(id);
+
+function newPuzzle(){
+  let n,t;
+  for(;;){
+    n=Array.from({length:4},()=>1+Math.floor(Math.random()*9));
+    if(mode==='classic'){
+      t=24;
+      if(solve(items(n),t,true)) break;
+    } else {
+      const set=new Set(); reach(n,set);
+      const sum=n.reduce((x,y)=>x+y,0);
+      const pool=[...set].filter(v=>v>=6&&v<=50&&v!==sum);
+      if(pool.length){ t=pool[Math.floor(Math.random()*pool.length)]; break; }
+    }
+  }
+  nums=n; target=t; sol=solve(items(n),t,true);
+  seq=[]; locked=false; hintLevel=0; setMsg('');
+  const box=$('nums'); box.innerHTML='';
+  nums.forEach((x,i)=>{
+    const b=document.createElement('button'); b.textContent=x; b.dataset.i=i;
+    b.onclick=()=>push(String(x),i); box.appendChild(b);
+  });
+  const ob=$('ops'); ob.innerHTML='';
+  ['+','-','*','/','(',')'].forEach(o=>{
+    const b=document.createElement('button'); b.textContent=SHOW[o];
+    b.onclick=()=>push(o); ob.appendChild(b);
+  });
+  render();
+}
+function push(t,i){ if(locked) return; seq.push({t,i}); setMsg(''); render(); }
+function render(){
+  const s=$('screen');
+  if(!seq.length){ s.className='screen empty'; s.textContent='Tekan tombol untuk menyusun'; }
+  else { s.className='screen'; s.textContent=seq.map(x=>SHOW[x.t]||x.t).join(' '); }
+  const used=new Set(seq.filter(x=>x.i!==undefined).map(x=>x.i));
+  document.querySelectorAll('#nums button').forEach(b=>b.disabled=used.has(Number(b.dataset.i)));
+  $('target').textContent=target;
+  $('stat').textContent='Skor '+score+' \u00b7 Beruntun '+streak;
+  $('m-classic').setAttribute('aria-pressed',mode==='classic');
+  $('m-random').setAttribute('aria-pressed',mode==='random');
+}
+function setMsg(t,c){ const m=$('msg'); m.textContent=t; m.className=c||''; }
+
+$('m-classic').onclick=()=>{ mode='classic'; streak=0; newPuzzle(); };
+$('m-random').onclick=()=>{ mode='random'; streak=0; newPuzzle(); };
+$('undo').onclick=()=>{ if(locked) return; seq.pop(); setMsg(''); render(); };
+$('clear').onclick=()=>{ if(locked) return; seq=[]; setMsg(''); render(); };
+$('skip').onclick=()=>{ streak=0; newPuzzle(); };
+$('hint').onclick=()=>{
+  if(locked) return;
+  hintLevel++;
+  if(hintLevel===1){
+    const [a,o,b]=sol.step;
+    setMsg('Coba gabungkan '+a+' '+SHOW[o]+' '+b+' dulu. Tekan Hint lagi untuk lihat solusi.');
+  } else {
+    streak=0; locked=true; render();
+    setMsg('Solusi: '+pretty(sol.s)+' = '+target+'. Tekan "Soal lain" untuk lanjut.');
+  }
+};
+$('check').onclick=()=>{
+  if(locked) return;
+  const used=seq.filter(x=>x.i!==undefined).length;
+  if(used<4){ setMsg('Pakai keempat angka dulu ('+used+'/4)','bad'); return; }
+  try{
+    const v=evaluate(seq.map(x=>x.t));
+    if(v===target){
+      score++; streak++; locked=true; render(); setMsg('Benar! Hasilnya '+target,'ok');
+      setTimeout(newPuzzle,1400);
+    } else { streak=0; render(); setMsg('Hasilnya '+v+', belum '+target,'bad'); }
+  }catch(e){ setMsg(e.message,'bad'); }
+};
+newPuzzle();
+</script>
+</body>
+</html>
